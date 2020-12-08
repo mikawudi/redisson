@@ -102,46 +102,29 @@ public class PublishSubscribeService {
     }
 
     public RFuture<PubSubConnectionEntry> psubscribe(ChannelName channelName, Codec codec, RedisPubSubListener<?>... listeners) {
-        return subscribe(PubSubType.PSUBSCRIBE, codec, channelName, new RedissonPromise<PubSubConnectionEntry>(), listeners);
+        return subscribe(PubSubType.PSUBSCRIBE, codec, channelName, listeners);
     }
 
     public RFuture<PubSubConnectionEntry> psubscribe(String channelName, Codec codec, AsyncSemaphore semaphore, RedisPubSubListener<?>... listeners) {
-        RPromise<PubSubConnectionEntry> promise = new RedissonPromise<PubSubConnectionEntry>();
+        RPromise<PubSubConnectionEntry> promise = new RedissonPromise<>();
         subscribe(codec, new ChannelName(channelName), promise, PubSubType.PSUBSCRIBE, semaphore, listeners);
         return promise;
     }
 
     public RFuture<PubSubConnectionEntry> subscribe(Codec codec, ChannelName channelName, RedisPubSubListener<?>... listeners) {
-        return subscribe(PubSubType.SUBSCRIBE, codec, channelName, new RedissonPromise<PubSubConnectionEntry>(), listeners);
+        return subscribe(PubSubType.SUBSCRIBE, codec, channelName, listeners);
     }
 
-    private RFuture<PubSubConnectionEntry> subscribe(PubSubType type, Codec codec, ChannelName channelName,
-            RPromise<PubSubConnectionEntry> promise, RedisPubSubListener<?>... listeners) {
+    private RFuture<PubSubConnectionEntry> subscribe(PubSubType type, Codec codec, ChannelName channelName, RedisPubSubListener<?>... listeners) {
+        RPromise<PubSubConnectionEntry> promise = new RedissonPromise<>();
         AsyncSemaphore lock = getSemaphore(channelName);
-        lock.acquire(new Runnable() {
-            @Override
-            public void run() {
-                if (promise.isDone()) {
-                    lock.release();
-                    return;
-                }
-
-                RPromise<PubSubConnectionEntry> result = new RedissonPromise<PubSubConnectionEntry>();
-                promise.onComplete((res, e) -> {
-                    if (e != null) {
-                        result.tryFailure(e);
-                    }
-                });
-                result.onComplete((res, e) -> {
-                    if (e != null) {
-                        promise.tryFailure(e);
-                        return;
-                    }
-
-                    promise.trySuccess(res);
-                });
-                subscribe(codec, channelName, result, type, lock, listeners);
+        lock.acquire(() -> {
+            if (promise.isDone()) {
+                lock.release();
+                return;
             }
+
+            subscribe(codec, channelName, promise, type, lock, listeners);
         });
         return promise;
     }
@@ -516,6 +499,27 @@ public class PublishSubscribeService {
         MasterSlaveEntry me = connectionManager.getEntry(slot);
         Queue<PubSubConnectionEntry> freePubSubConnections = freePubSubMap.computeIfAbsent(me, e -> new ConcurrentLinkedQueue<>());
         freePubSubConnections.add(entry);
+    }
+
+    public void reattachPubSub(int slot) {
+        name2PubSubConnection.entrySet().stream()
+            .filter(e -> connectionManager.calcSlot(e.getKey().getName()) == slot)
+            .forEach(entry -> {
+                PubSubConnectionEntry pubSubEntry = entry.getValue();
+                Codec codec = pubSubEntry.getConnection().getChannels().get(entry.getKey());
+                if (codec != null) {
+                    Queue<RedisPubSubListener<?>> listeners = pubSubEntry.getListeners(entry.getKey());
+                    unsubscribe(entry.getKey(), PubSubType.UNSUBSCRIBE);
+                    subscribe(codec, entry.getKey(), listeners.toArray(new RedisPubSubListener[0]));
+                }
+
+                Codec patternCodec = pubSubEntry.getConnection().getPatternChannels().get(entry.getKey());
+                if (patternCodec != null) {
+                    Queue<RedisPubSubListener<?>> listeners = pubSubEntry.getListeners(entry.getKey());
+                    unsubscribe(entry.getKey(), PubSubType.PUNSUBSCRIBE);
+                    psubscribe(entry.getKey(), patternCodec, listeners.toArray(new RedisPubSubListener[0]));
+                }
+            });
     }
 
     public void reattachPubSub(RedisPubSubConnection redisPubSubConnection) {

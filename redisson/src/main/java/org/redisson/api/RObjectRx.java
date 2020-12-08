@@ -19,8 +19,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.redisson.client.codec.Codec;
 
-import io.reactivex.Completable;
-import io.reactivex.Single;
+import io.reactivex.rxjava3.core.Completable;
+import io.reactivex.rxjava3.core.Single;
 
 /**
  * Base RxJava2 interface for all Redisson objects
@@ -29,6 +29,13 @@ import io.reactivex.Single;
  *
  */
 public interface RObjectRx {
+
+    /**
+     * Returns number of seconds spent since last write or read operation over this object.
+     *
+     * @return number of seconds
+     */
+    Single<Long> getIdleTime();
 
     String getName();
     

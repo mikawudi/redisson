@@ -466,6 +466,16 @@ public class Redisson implements RedissonClient {
     }
 
     @Override
+    public RReliableTopic getReliableTopic(String name) {
+        return new RedissonReliableTopic(connectionManager.getCommandExecutor(), name);
+    }
+
+    @Override
+    public RReliableTopic getReliableTopic(String name, Codec codec) {
+        return new RedissonReliableTopic(codec, connectionManager.getCommandExecutor(), name);
+    }
+
+    @Override
     public RPatternTopic getPatternTopic(String pattern) {
         return new RedissonPatternTopic(connectionManager.getCommandExecutor(), pattern);
     }
@@ -605,6 +615,11 @@ public class Redisson implements RedissonClient {
     @Override
     public <V> RBloomFilter<V> getBloomFilter(String name, Codec codec) {
         return new RedissonBloomFilter<V>(codec, connectionManager.getCommandExecutor(), name);
+    }
+
+    @Override
+    public RIdGenerator getIdGenerator(String name) {
+        return new RedissonIdGenerator(connectionManager.getCommandExecutor(), name);
     }
 
     @Override

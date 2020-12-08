@@ -15,24 +15,7 @@
  */
 package org.redisson.tomcat;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-
-import javax.servlet.http.HttpSession;
-
-import org.apache.catalina.Context;
-import org.apache.catalina.LifecycleException;
-import org.apache.catalina.LifecycleState;
-import org.apache.catalina.Pipeline;
-import org.apache.catalina.Session;
-import org.apache.catalina.SessionEvent;
-import org.apache.catalina.SessionListener;
+import org.apache.catalina.*;
 import org.apache.catalina.session.ManagerBase;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
@@ -46,6 +29,11 @@ import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.codec.CompositeCodec;
 import org.redisson.config.Config;
+
+import javax.servlet.http.HttpSession;
+import java.io.File;
+import java.io.IOException;
+import java.util.*;
 
 /**
  * Redisson Session Manager for Apache Tomcat
@@ -70,10 +58,6 @@ public class RedissonSessionManager extends ManagerBase {
     private boolean broadcastSessionEvents = false;
 
     private final String nodeId = UUID.randomUUID().toString();
-
-    private static UpdateValve updateValve;
-
-    private static Set<String> contextInUse = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     private MessageListener messageListener;
     
@@ -143,7 +127,7 @@ public class RedissonSessionManager extends ManagerBase {
             session.addSessionListener(new SessionListener() {
                 @Override
                 public void sessionEvent(SessionEvent event) {
-                    if (event.getType() == Session.SESSION_DESTROYED_EVENT) {
+                    if (event.getType().equals(Session.SESSION_DESTROYED_EVENT)) {
                         getTopic().publish(new SessionDestroyedMessage(getNodeId(), session.getId()));
                     }
                 }
@@ -151,7 +135,7 @@ public class RedissonSessionManager extends ManagerBase {
         }
         return session;
     }
-    
+
     public RSet<String> getNotifiedNodes(String sessionId) {
         String separator = keyPrefix == null || keyPrefix.isEmpty() ? "" : ":";
         String name = keyPrefix + separator + "redisson:tomcat_notified_nodes:" + sessionId;
@@ -186,7 +170,7 @@ public class RedissonSessionManager extends ManagerBase {
                     log.error("Can't read session object by id: " + id, e);
                 }
 
-                if (attrs.isEmpty() || (broadcastSessionEvents && getNotifiedNodes(id).contains(nodeId))) {  
+                if (attrs.isEmpty() || (broadcastSessionEvents && getNotifiedNodes(id).contains(nodeId))) {
                     log.info("Session " + id + " can't be found");
                     return null;    
                 }
@@ -207,17 +191,10 @@ public class RedissonSessionManager extends ManagerBase {
         
         return result;
     }
-
     
     @Override
     public Session createEmptySession() {
         return new RedissonSession(this, readMode, updateMode, broadcastSessionEvents);
-    }
-    
-    @Override
-    public void add(Session session) {
-        super.add(session);
-        ((RedissonSession)session).save();
     }
     
     @Override
@@ -227,6 +204,12 @@ public class RedissonSessionManager extends ManagerBase {
         if (session.getIdInternal() != null) {
             ((RedissonSession)session).delete();
         }
+    }
+    
+    @Override
+    public void add(Session session) {
+        super.add(session);
+        ((RedissonSession)session).save();
     }
     
     public RedissonClient getRedisson() {
@@ -258,11 +241,20 @@ public class RedissonSessionManager extends ManagerBase {
         
         Pipeline pipeline = getEngine().getPipeline();
         synchronized (pipeline) {
-            contextInUse.add(((Context) getContainer()).getName());
+            if (readMode == ReadMode.REDIS) {
+                Optional<Valve> res = Arrays.stream(pipeline.getValves()).filter(v -> v.getClass() == UsageValve.class).findAny();
+                if (res.isPresent()) {
+                    ((UsageValve)res.get()).incUsage();
+                } else {
+                    pipeline.addValve(new UsageValve());
+                }
+            }
             if (updateMode == UpdateMode.AFTER_REQUEST) {
-                if (updateValve == null) {
-                    updateValve = new UpdateValve();
-                    pipeline.addValve(updateValve);
+                Optional<Valve> res = Arrays.stream(pipeline.getValves()).filter(v -> v.getClass() == UpdateValve.class).findAny();
+                if (res.isPresent()) {
+                    ((UpdateValve)res.get()).incUsage();
+                } else {
+                    pipeline.addValve(new UpdateValve());
                 }
             }
         }
@@ -339,11 +331,11 @@ public class RedissonSessionManager extends ManagerBase {
     protected RedissonClient buildClient() throws LifecycleException {
         Config config = null;
         try {
-            config = Config.fromJSON(new File(configPath), getClass().getClassLoader());
+            config = Config.fromYAML(new File(configPath), getClass().getClassLoader());
         } catch (IOException e) {
             // trying next format
             try {
-                config = Config.fromYAML(new File(configPath), getClass().getClassLoader());
+                config = Config.fromJSON(new File(configPath), getClass().getClassLoader());
             } catch (IOException e1) {
                 log.error("Can't parse json config " + configPath, e);
                 throw new LifecycleException("Can't parse yaml config " + configPath, e1);
@@ -365,13 +357,19 @@ public class RedissonSessionManager extends ManagerBase {
         
         Pipeline pipeline = getEngine().getPipeline();
         synchronized (pipeline) {
-            contextInUse.remove(((Context) getContainer()).getName());
-            //remove valves when all of the RedissonSessionManagers (web apps) are not in use anymore
-            if (contextInUse.isEmpty()) {
-                if (updateValve != null) {
-                    pipeline.removeValve(updateValve);
-                    updateValve = null;
-                }
+            if (readMode == ReadMode.REDIS) {
+                Arrays.stream(pipeline.getValves()).filter(v -> v.getClass() == UsageValve.class).forEach(v -> {
+                    if (((UsageValve)v).decUsage() == 0){
+                        pipeline.removeValve(v);
+                    }
+                });
+            }
+            if (updateMode == UpdateMode.AFTER_REQUEST) {
+                Arrays.stream(pipeline.getValves()).filter(v -> v.getClass() == UpdateValve.class).forEach(v -> {
+                    if (((UpdateValve)v).decUsage() == 0){
+                        pipeline.removeValve(v);
+                    }
+                });
             }
         }
         

@@ -194,6 +194,8 @@ public class RedissonRateLimiter extends RedissonExpirable implements RRateLimit
                   + "permitsName = KEYS[5];"
               + "end;"
 
+              + "assert(tonumber(rate) >= tonumber(ARGV[1]), 'Requested permits amount could not exceed defined rate'); "
+
               + "local currentValue = redis.call('get', valueName); "
               + "if currentValue ~= false then "
                      + "local expiredValues = redis.call('zrangebyscore', permitsName, 0, tonumber(ARGV[2]) - interval); "
@@ -219,7 +221,6 @@ public class RedissonRateLimiter extends RedissonExpirable implements RRateLimit
                          + "return nil; "
                      + "end; "
               + "else "
-                     + "assert(tonumber(rate) >= tonumber(ARGV[1]), 'Requested permits amount could not exceed defined rate'); "
                      + "redis.call('set', valueName, rate); "
                      + "redis.call('zadd', permitsName, ARGV[2], struct.pack('fI', ARGV[3], ARGV[1])); "
                      + "redis.call('decrby', valueName, ARGV[1]); "
@@ -241,6 +242,21 @@ public class RedissonRateLimiter extends RedissonExpirable implements RRateLimit
               + "redis.call('hsetnx', KEYS[1], 'interval', ARGV[2]);"
               + "return redis.call('hsetnx', KEYS[1], 'type', ARGV[3]);",
                 Collections.singletonList(getName()), rate, unit.toMillis(rateInterval), type.ordinal());
+    }
+
+    @Override
+    public void setRate(RateType type, long rate, long rateInterval, RateIntervalUnit unit) {
+        get(setRateAsync(type, rate, rateInterval, unit));
+    }
+
+    @Override
+    public RFuture<Void> setRateAsync(RateType type, long rate, long rateInterval, RateIntervalUnit unit) {
+         return commandExecutor.evalWriteAsync(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+                "redis.call('hset', KEYS[1], 'rate', ARGV[1]);"
+                        + "redis.call('hset', KEYS[1], 'interval', ARGV[2]);"
+                        + "redis.call('hset', KEYS[1], 'type', ARGV[3]);"
+                        + "redis.call('del', KEYS[2], KEYS[3]);",
+                Arrays.asList(getName(), getValueName(), getPermitsName()), rate, unit.toMillis(rateInterval), type.ordinal());
     }
     
     private static final RedisCommand HGETALL = new RedisCommand("HGETALL", new MultiDecoder<RateLimiterConfig>() {
@@ -304,7 +320,7 @@ public class RedissonRateLimiter extends RedissonExpirable implements RRateLimit
                      + "local expiredValues = redis.call('zrangebyscore', permitsName, 0, tonumber(ARGV[1]) - interval); "
                      + "local released = 0; "
                      + "for i, v in ipairs(expiredValues) do "
-                          + "local random, permits = struct.unpack('dI', v);"
+                          + "local random, permits = struct.unpack('fI', v);"
                           + "released = released + permits;"
                      + "end; "
 

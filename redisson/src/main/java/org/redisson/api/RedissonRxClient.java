@@ -326,6 +326,14 @@ public interface RedissonRxClient {
     <V> RHyperLogLogRx<V> getHyperLogLog(String name, Codec codec);
 
     /**
+     * Returns id generator by name.
+     *
+     * @param name - name of object
+     * @return IdGenerator object
+     */
+    RIdGeneratorRx getIdGenerator(String name);
+
+    /**
      * Returns list instance by name.
      *
      * @param <V> type of values
@@ -368,6 +376,31 @@ public interface RedissonRxClient {
     <K, V> RListMultimapRx<K, V> getListMultimap(String name, Codec codec);
 
     /**
+     * Returns List based Multimap cache instance by name.
+     * Supports key eviction by specifying a time to live.
+     * If eviction is not required then it's better to use regular list multimap {@link #getListMultimap(String)}.
+     *
+     * @param <K> type of key
+     * @param <V> type of value
+     * @param name - name of object
+     * @return RListMultimapCacheRx object
+     */
+    <K, V> RListMultimapCacheRx<K, V> getListMultimapCache(String name);
+
+    /**
+     * Returns List based Multimap cache instance by name using provided codec for both map keys and values.
+     * Supports key eviction by specifying a time to live.
+     * If eviction is not required then it's better to use regular list multimap {@link #getListMultimap(String, Codec)}.
+     *
+     * @param <K> type of key
+     * @param <V> type of value
+     * @param name - name of object
+     * @param codec - codec for keys and values
+     * @return RListMultimapCacheRx object
+     */
+    <K, V> RListMultimapCacheRx<K, V> getListMultimapCache(String name, Codec codec);
+
+    /**
      * Returns Set based Multimap instance by name.
      * 
      * @param <K> type of key
@@ -388,7 +421,32 @@ public interface RedissonRxClient {
      * @return SetMultimap object
      */
     <K, V> RSetMultimapRx<K, V> getSetMultimap(String name, Codec codec);
-    
+
+    /**
+     * Returns Set based Multimap cache instance by name.
+     * Supports key eviction by specifying a time to live.
+     * If eviction is not required then it's better to use regular set multimap {@link #getSetMultimap(String)}.
+     *
+     * @param <K> type of key
+     * @param <V> type of value
+     * @param name - name of object
+     * @return RSetMultimapCacheRx object
+     */
+    <K, V> RSetMultimapCacheRx<K, V> getSetMultimapCache(String name);
+
+    /**
+     * Returns Set based Multimap cache instance by name using provided codec for both map keys and values.
+     * Supports key eviction by specifying a time to live.
+     * If eviction is not required then it's better to use regular set multimap {@link #getSetMultimap(String, Codec)}.
+     *
+     * @param <K> type of key
+     * @param <V> type of value
+     * @param name - name of object
+     * @param codec - codec for keys and values
+     * @return RSetMultimapCacheRx object
+     */
+    <K, V> RSetMultimapCacheRx<K, V> getSetMultimapCache(String name, Codec codec);
+
     /**
      * Returns map instance by name.
      *
@@ -504,6 +562,34 @@ public interface RedissonRxClient {
      * @return Topic object
      */
     RTopicRx getTopic(String name, Codec codec);
+
+    /**
+     * Returns reliable topic instance by name.
+     * <p>
+     * Dedicated Redis connection is allocated per instance (subscriber) of this object.
+     * Messages are delivered to all listeners attached to the same Redis setup.
+     * <p>
+     * Requires <b>Redis 5.0.0 and higher.</b>
+     *
+     * @param name - name of object
+     * @return ReliableTopic object
+     */
+    RReliableTopicRx getReliableTopic(String name);
+
+    /**
+     * Returns reliable topic instance by name
+     * using provided codec for messages.
+     * <p>
+     * Dedicated Redis connection is allocated per instance (subscriber) of this object.
+     * Messages are delivered to all listeners attached to the same Redis setup.
+     * <p>
+     * Requires <b>Redis 5.0.0 and higher.</b>
+     *
+     * @param name - name of object
+     * @param codec - codec for message
+     * @return ReliableTopic object
+     */
+    RReliableTopicRx getReliableTopic(String name, Codec codec);
 
     /**
      * Returns topic instance satisfies by pattern name.

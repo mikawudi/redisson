@@ -32,10 +32,10 @@ import org.redisson.connection.ConnectionManager;
 import org.redisson.connection.MasterSlaveEntry;
 import org.redisson.connection.NodeSource;
 import org.redisson.liveobject.core.RedissonObjectBuilder;
+import org.redisson.misc.AsyncCountDownLatch;
 import org.redisson.misc.CountableListener;
 import org.redisson.misc.RPromise;
 import org.redisson.misc.RedissonPromise;
-import org.redisson.pubsub.AsyncSemaphore;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -102,7 +102,7 @@ public class CommandBatchService extends CommandAsyncService {
 
     }
 
-    private AsyncSemaphore semaphore = new AsyncSemaphore(0);
+    private final AsyncCountDownLatch latch = new AsyncCountDownLatch();
     private AtomicInteger index = new AtomicInteger();
 
     private ConcurrentMap<MasterSlaveEntry, Entry> commands = new ConcurrentHashMap<>();
@@ -141,11 +141,11 @@ public class CommandBatchService extends CommandAsyncService {
         if (isRedisBasedQueue()) {
             boolean isReadOnly = options.getExecutionMode() == ExecutionMode.REDIS_READ_ATOMIC;
             RedisExecutor<V, R> executor = new RedisQueuedBatchExecutor<>(isReadOnly, nodeSource, codec, command, params, mainPromise,
-                    true, connectionManager, objectBuilder, commands, connections, options, index, executed, semaphore);
+                    false, connectionManager, objectBuilder, commands, connections, options, index, executed, latch);
             executor.execute();
         } else {
             RedisExecutor<V, R> executor = new RedisBatchExecutor<>(readOnlyMode, nodeSource, codec, command, params, mainPromise, 
-                    true, connectionManager, objectBuilder, commands, options, index, executed);
+                    false, connectionManager, objectBuilder, commands, options, index, executed);
             executor.execute();
         }
         
@@ -227,8 +227,21 @@ public class CommandBatchService extends CommandAsyncService {
         RPromise<Void> voidPromise = new RedissonPromise<Void>();
         if (this.options.isSkipResult()
                 && this.options.getSyncSlaves() == 0) {
-            voidPromise.onComplete((res, e) -> {
+            voidPromise.onComplete((res, ex) -> {
                 executed.set(true);
+
+                if (ex != null) {
+                    for (Entry e : commands.values()) {
+                        e.getCommands().forEach(t -> t.tryFailure(ex));
+                    }
+
+                    promise.tryFailure(ex);
+
+                    commands.clear();
+                    nestedServices.clear();
+                    return;
+                }
+
                 commands.clear();
                 nestedServices.clear();
                 promise.trySuccess(new BatchResult<>(Collections.emptyList(), 0));
@@ -237,11 +250,11 @@ public class CommandBatchService extends CommandAsyncService {
             voidPromise.onComplete((res, ex) -> {
                 executed.set(true);
                 if (ex != null) {
-                    promise.tryFailure(ex);
-
                     for (Entry e : commands.values()) {
                         e.getCommands().forEach(t -> t.tryFailure(ex));
                     }
+
+                    promise.tryFailure(ex);
 
                     commands.clear();
                     nestedServices.clear();
@@ -312,33 +325,28 @@ public class CommandBatchService extends CommandAsyncService {
         }
         
         RPromise<R> resultPromise = new RedissonPromise<R>();
-        Timeout timeout;
-        if (semaphore.getCounter() < permits) {
-            long responseTimeout;
-            if (options.getResponseTimeout() > 0) {
-                responseTimeout = options.getResponseTimeout();
-            } else {
-                responseTimeout = connectionManager.getConfig().getTimeout();
-            }
-
-            timeout = connectionManager.newTimeout(new TimerTask() {
-                @Override
-                public void run(Timeout timeout) throws Exception {
-                    resultPromise.tryFailure(new RedisTimeoutException("Response timeout for queued commands " + responseTimeout + ": " +
-                            commands.values().stream()
-                                    .flatMap(e -> e.getCommands().stream().map(d -> d.getCommand()))
-                                    .collect(Collectors.toList())));
-                }
-            }, responseTimeout, TimeUnit.MILLISECONDS);
+        long responseTimeout;
+        if (options.getResponseTimeout() > 0) {
+            responseTimeout = options.getResponseTimeout();
         } else {
-            timeout = null;
+            responseTimeout = connectionManager.getConfig().getTimeout();
         }
 
-        semaphore.acquire(new Runnable() {
+        Timeout timeout = connectionManager.newTimeout(new TimerTask() {
+            @Override
+            public void run(Timeout timeout) throws Exception {
+                resultPromise.tryFailure(new RedisTimeoutException("Response timeout for queued commands " + responseTimeout + ": " +
+                        commands.values().stream()
+                                .flatMap(e -> e.getCommands().stream().map(d -> d.getCommand()))
+                                .collect(Collectors.toList())));
+            }
+        }, responseTimeout, TimeUnit.MILLISECONDS);
+
+        latch.latch(new Runnable() {
             @Override
             public void run() {
-                if (timeout != null) {
-                    timeout.cancel();
+                if (!timeout.cancel()) {
+                    return;
                 }
 
                 for (Entry entry : commands.values()) {
@@ -400,7 +408,7 @@ public class CommandBatchService extends CommandAsyncService {
                                 if (data.getCommand().getName().equals(RedisCommands.EXEC.getName())) {
                                     break;
                                 }
-                                
+
                                 RPromise<Object> promise = (RPromise<Object>) data.getPromise();
                                 if (resultIter.hasNext()) {
                                     promise.trySuccess(resultIter.next());
@@ -410,7 +418,7 @@ public class CommandBatchService extends CommandAsyncService {
                                 }
                             }
                         }
-                        
+
                         List<BatchCommandData> entries = new ArrayList<BatchCommandData>();
                         for (Entry e : commands.values()) {
                             entries.addAll(e.getCommands());

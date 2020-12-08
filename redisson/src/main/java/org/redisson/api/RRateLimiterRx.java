@@ -15,8 +15,8 @@
  */
 package org.redisson.api;
 
-import io.reactivex.Completable;
-import io.reactivex.Single;
+import io.reactivex.rxjava3.core.Completable;
+import io.reactivex.rxjava3.core.Single;
 
 import java.util.concurrent.TimeUnit;
 
@@ -39,6 +39,17 @@ public interface RRateLimiterRx extends RExpirableRx {
      *         otherwise
      */
     Single<Boolean> trySetRate(RateType mode, long rate, long rateInterval, RateIntervalUnit rateIntervalUnit);
+
+    /**
+     * Updates RateLimiter's state and stores config to Redis server.
+     *
+     * @param mode - rate mode
+     * @param rate - rate
+     * @param rateInterval - rate time interval
+     * @param rateIntervalUnit - rate time interval unit
+     *
+     */
+    Single<Void> setRate(RateType mode, long rate, long rateInterval, RateIntervalUnit rateIntervalUnit);
 
     /**
      * Acquires a permit only if one is available at the

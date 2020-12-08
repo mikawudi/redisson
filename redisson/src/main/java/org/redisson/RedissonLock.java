@@ -225,9 +225,8 @@ public class RedissonLock extends RedissonExpirable implements RLock {
         if (leaseTime != -1) {
             return tryLockInnerAsync(waitTime, leaseTime, unit, threadId, RedisCommands.EVAL_NULL_BOOLEAN);
         }
-        RFuture<Boolean> ttlRemainingFuture = tryLockInnerAsync(waitTime,
-                                                    commandExecutor.getConnectionManager().getCfg().getLockWatchdogTimeout(),
-                                                    TimeUnit.MILLISECONDS, threadId, RedisCommands.EVAL_NULL_BOOLEAN);
+        RFuture<Boolean> ttlRemainingFuture = tryLockInnerAsync(waitTime, internalLockLeaseTime,
+                                                                    TimeUnit.MILLISECONDS, threadId, RedisCommands.EVAL_NULL_BOOLEAN);
         ttlRemainingFuture.onComplete((ttlRemaining, e) -> {
             if (e != null) {
                 return;
@@ -245,9 +244,8 @@ public class RedissonLock extends RedissonExpirable implements RLock {
         if (leaseTime != -1) {
             return tryLockInnerAsync(waitTime, leaseTime, unit, threadId, RedisCommands.EVAL_LONG);
         }
-        RFuture<Long> ttlRemainingFuture = tryLockInnerAsync(waitTime,
-                                                commandExecutor.getConnectionManager().getCfg().getLockWatchdogTimeout(),
-                                                TimeUnit.MILLISECONDS, threadId, RedisCommands.EVAL_LONG);
+        RFuture<Long> ttlRemainingFuture = tryLockInnerAsync(waitTime, internalLockLeaseTime,
+                                                                TimeUnit.MILLISECONDS, threadId, RedisCommands.EVAL_LONG);
         ttlRemainingFuture.onComplete((ttlRemaining, e) -> {
             if (e != null) {
                 return;
@@ -288,6 +286,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
                 future.onComplete((res, e) -> {
                     if (e != null) {
                         log.error("Can't update lock " + getName() + " expiration", e);
+                        EXPIRATION_RENEWAL_MAP.remove(getEntryName());
                         return;
                     }
                     

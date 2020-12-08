@@ -336,6 +336,14 @@ public interface RedissonReactiveClient {
     <V> RHyperLogLogReactive<V> getHyperLogLog(String name, Codec codec);
 
     /**
+     * Returns id generator by name.
+     *
+     * @param name - name of object
+     * @return IdGenerator object
+     */
+    RIdGeneratorReactive getIdGenerator(String name);
+
+    /**
      * Returns list instance by name.
      *
      * @param <V> type of values
@@ -515,6 +523,34 @@ public interface RedissonReactiveClient {
      * @return Topic object
      */
     RTopicReactive getTopic(String name, Codec codec);
+
+    /**
+     * Returns reliable topic instance by name.
+     * <p>
+     * Dedicated Redis connection is allocated per instance (subscriber) of this object.
+     * Messages are delivered to all listeners attached to the same Redis setup.
+     * <p>
+     * Requires <b>Redis 5.0.0 and higher.</b>
+     *
+     * @param name - name of object
+     * @return ReliableTopic object
+     */
+    RReliableTopicReactive getReliableTopic(String name);
+
+    /**
+     * Returns reliable topic instance by name
+     * using provided codec for messages.
+     * <p>
+     * Dedicated Redis connection is allocated per instance (subscriber) of this object.
+     * Messages are delivered to all listeners attached to the same Redis setup.
+     * <p>
+     * Requires <b>Redis 5.0.0 and higher.</b>
+     *
+     * @param name - name of object
+     * @param codec - codec for message
+     * @return ReliableTopic object
+     */
+    RReliableTopicReactive getReliableTopic(String name, Codec codec);
 
     /**
      * Returns topic instance satisfies by pattern name.

@@ -16,6 +16,7 @@
 package org.redisson.api;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -228,12 +229,28 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
     Mono<Integer> revRank(V o);
 
     /**
+     * Returns ranks of elements, with the scores ordered from high to low.
+     *
+     * @param elements - elements
+     * @return ranks or <code>null</code> if value does not exist
+     */
+    Mono<List<Integer>> revRank(Collection<V> elements);
+
+    /**
      * Returns score of element or <code>null</code> if it doesn't exist.
      * 
      * @param o - element
      * @return score
      */
     Mono<Double> getScore(V o);
+
+    /**
+     * Returns scores of elements.
+     *
+     * @param elements - elements
+     * @return element scores
+     */
+    Mono<List<Double>> getScore(Collection<V> elements);
 
     /**
      * Adds element to this set, overrides previous score if it has been already added.
@@ -251,7 +268,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param objects - map of elements to add
      * @return amount of added elements, not including already existing in this sorted set
      */
-    Mono<Long> addAll(Map<V, Double> objects);
+    Mono<Integer> addAll(Map<V, Double> objects);
     
     /**
      * Adds element to this set, overrides previous score if it has been already added.
@@ -272,7 +289,15 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @return reverse rank
      */
     Mono<Integer> addAndGetRevRank(double score, V object);
-    
+
+    /**
+     * Adds elements to this set, overrides previous score if it has been already added.
+     * Finally returns reverse rank list of the items
+     * @param map - map of object and scores, make sure to use an ordered map
+     * @return collection of reverse ranks
+     */
+    Mono<List<Integer>> addAndGetRevRank(Map<? extends V, Double> map);
+
     /**
      * Adds element to this set only if has not been added before.
      * <p>
@@ -550,7 +575,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param endScoreInclusive - end score inclusive
      * @return count
      */
-    Mono<Long> count(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive);
+    Mono<Integer> count(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive);
     
     /**
      * Read all values at once.

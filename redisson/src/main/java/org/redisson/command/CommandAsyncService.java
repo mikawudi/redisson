@@ -15,6 +15,7 @@
  */
 package org.redisson.command;
 
+import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,6 +31,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 
+import org.redisson.RedissonReference;
 import org.redisson.SlotCallback;
 import org.redisson.api.*;
 import org.redisson.cache.LRUCacheMap;
@@ -104,8 +106,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         codecProvider.registerCodec((Class<Codec>) codec.getClass(), codec);
     }
 
-    @Override
-    public boolean isRedissonReferenceSupportEnabled() {
+    private boolean isRedissonReferenceSupportEnabled() {
         return objectBuilder != null;
     }
 
@@ -465,27 +466,12 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         return mainPromise;
     }
 
-    private RFuture<String> loadScript(List<Object> keys, String script) {
-        if (!keys.isEmpty()) {
-            Object key = keys.get(0);
-            if (key instanceof byte[]) {
-                return writeAsync((byte[]) key, StringCodec.INSTANCE, RedisCommands.SCRIPT_LOAD, script);
-            }
-            return writeAsync((String) key, StringCodec.INSTANCE, RedisCommands.SCRIPT_LOAD, script);
+    private RFuture<String> loadScript(RedisClient client, String script) {
+        MasterSlaveEntry entry = getConnectionManager().getEntry(client);
+        if (entry.getClient().equals(client)) {
+            return writeAsync(entry, StringCodec.INSTANCE, RedisCommands.SCRIPT_LOAD, script);
         }
-        
-        return writeAllAsync(RedisCommands.SCRIPT_LOAD, new SlotCallback<String, String>() {
-            volatile String result;
-            @Override
-            public void onSlotResult(String result) {
-                this.result = result;
-            }
-            
-            @Override
-            public String onFinish() {
-                return result;
-            }
-        }, script);
+        return readAsync(client, StringCodec.INSTANCE, RedisCommands.SCRIPT_LOAD, script);
     }
     
     protected boolean isEvalCacheActive() {
@@ -540,12 +526,15 @@ public class CommandAsyncService implements CommandAsyncExecutor {
             args.add(keys.size());
             args.addAll(keys);
             args.addAll(Arrays.asList(params));
-            async(false, nodeSource, codec, cmd, args.toArray(), promise, false);
-            
+
+            RedisExecutor<T, R> executor = new RedisExecutor<>(readOnlyMode, nodeSource, codec, cmd,
+                                                        args.toArray(), promise, false, connectionManager, objectBuilder);
+            executor.execute();
+
             promise.onComplete((res, e) -> {
                 if (e != null) {
                     if (e.getMessage().startsWith("NOSCRIPT")) {
-                        RFuture<String> loadFuture = loadScript(keys, script);
+                        RFuture<String> loadFuture = loadScript(executor.getRedisClient(), script);
                         loadFuture.onComplete((r, ex) -> {
                             if (ex != null) {
                                 free(pps);
@@ -559,7 +548,13 @@ public class CommandAsyncService implements CommandAsyncExecutor {
                             newargs.add(keys.size());
                             newargs.addAll(keys);
                             newargs.addAll(Arrays.asList(pps));
-                            async(false, nodeSource, codec, command, newargs.toArray(), mainPromise, false);
+
+                            NodeSource ns = nodeSource;
+                            if (ns.getRedisClient() == null) {
+                                ns = new NodeSource(nodeSource, executor.getRedisClient());
+                            }
+
+                            async(readOnlyMode, ns, codec, command, newargs.toArray(), mainPromise, false);
                         });
                     } else {
                         free(pps);
@@ -700,7 +695,55 @@ public class CommandAsyncService implements CommandAsyncExecutor {
     public RedissonObjectBuilder getObjectBuilder() {
         return objectBuilder;
     }
-    
+
+    @Override
+    public ByteBuf encode(Codec codec, Object value) {
+        if (isRedissonReferenceSupportEnabled()) {
+            RedissonReference reference = getObjectBuilder().toReference(value);
+            if (reference != null) {
+                value = reference;
+            }
+        }
+
+        try {
+            return codec.getValueEncoder().encode(value);
+        } catch (IOException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+
+    @Override
+    public ByteBuf encodeMapKey(Codec codec, Object value) {
+        if (isRedissonReferenceSupportEnabled()) {
+            RedissonReference reference = getObjectBuilder().toReference(value);
+            if (reference != null) {
+                value = reference;
+            }
+        }
+
+        try {
+            return codec.getMapKeyEncoder().encode(value);
+        } catch (IOException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+
+    @Override
+    public ByteBuf encodeMapValue(Codec codec, Object value) {
+        if (isRedissonReferenceSupportEnabled()) {
+            RedissonReference reference = getObjectBuilder().toReference(value);
+            if (reference != null) {
+                value = reference;
+            }
+        }
+
+        try {
+            return codec.getMapValueEncoder().encode(value);
+        } catch (IOException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+
     @Override
     public <V> RFuture<V> pollFromAnyAsync(String name, Codec codec, RedisCommand<Object> command, long secondsTimeout, String... queueNames) {
         if (connectionManager.isClusterMode() && queueNames.length > 0) {

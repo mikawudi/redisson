@@ -41,6 +41,7 @@ import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.decoder.ListScanResult;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.command.CommandBatchService;
+import org.redisson.connection.ConnectionManager;
 import org.redisson.connection.MasterSlaveEntry;
 import org.redisson.iterator.RedissonBaseIterator;
 import org.redisson.misc.CompositeIterable;
@@ -61,6 +62,10 @@ public class RedissonKeys implements RKeys {
     public RedissonKeys(CommandAsyncExecutor commandExecutor) {
         super();
         this.commandExecutor = commandExecutor;
+    }
+
+    public ConnectionManager getConnectionManager() {
+        return commandExecutor.getConnectionManager();
     }
 
     @Override
@@ -90,10 +95,10 @@ public class RedissonKeys implements RKeys {
 
     @Override
     public Iterable<String> getKeysByPattern(String pattern, int count) {
-        return getKeysByPattern(RedisCommands.SCAN, pattern, count);
+        return getKeysByPattern(RedisCommands.SCAN, pattern, 0, count);
     }
 
-    public <T> Iterable<T> getKeysByPattern(RedisCommand<?> command, String pattern, int count) {
+    public <T> Iterable<T> getKeysByPattern(RedisCommand<?> command, String pattern, int limit, int count) {
         List<Iterable<T>> iterables = new ArrayList<>();
         for (MasterSlaveEntry entry : commandExecutor.getConnectionManager().getEntrySet()) {
             Iterable<T> iterable = new Iterable<T>() {
@@ -104,7 +109,17 @@ public class RedissonKeys implements RKeys {
             };
             iterables.add(iterable);
         }
-        return new CompositeIterable<T>(iterables);
+        return new CompositeIterable<T>(iterables, limit);
+    }
+
+    @Override
+    public Iterable<String> getKeysWithLimit(int limit) {
+        return getKeysWithLimit(null, limit);
+    }
+
+    @Override
+    public Iterable<String> getKeysWithLimit(String pattern, int limit) {
+        return getKeysByPattern(RedisCommands.SCAN, pattern, limit, limit);
     }
 
     @Override
@@ -129,7 +144,7 @@ public class RedissonKeys implements RKeys {
 
     public RFuture<ListScanResult<Object>> scanIteratorAsync(RedisClient client, MasterSlaveEntry entry, long startPos,
             String pattern, int count) {
-        return scanIteratorAsync(client, entry, RedisCommands.SCAN, startPos, "COUNT", count);
+        return scanIteratorAsync(client, entry, RedisCommands.SCAN, startPos, pattern, count);
     }
 
     private <T> Iterator<T> createKeysIterator(MasterSlaveEntry entry, RedisCommand<?> command, String pattern, int count) {
@@ -213,6 +228,10 @@ public class RedissonKeys implements RKeys {
         if (commandExecutor instanceof CommandBatchService
                 || commandExecutor instanceof CommandReactiveBatchService
                     || commandExecutor instanceof CommandRxBatchService) {
+            if (getConnectionManager().isClusterMode()) {
+                throw new IllegalStateException("This method doesn't work in batch for Redis cluster mode. For Redis cluster execute it as non-batch method");
+            }
+
             return commandExecutor.evalWriteAsync((String) null, null, RedisCommands.EVAL_LONG, 
                             "local keys = redis.call('keys', ARGV[1]) "
                               + "local n = 0 "

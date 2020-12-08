@@ -67,6 +67,7 @@ public class RedisExecutor<V, R> {
     final RedissonObjectBuilder objectBuilder;
     final ConnectionManager connectionManager;
 
+    RFuture<RedisConnection> connectionFuture;
     NodeSource source;
     Codec codec;
     volatile int attempt;
@@ -634,8 +635,11 @@ public class RedisExecutor<V, R> {
         });
     }
 
+    public RedisClient getRedisClient() {
+        return connectionFuture.getNow().getRedisClient();
+    }
+
     protected RFuture<RedisConnection> getConnection() {
-        RFuture<RedisConnection> connectionFuture;
         if (readOnlyMode) {
             connectionFuture = connectionManager.connectionReadOp(source, command);
         } else {
@@ -664,16 +668,8 @@ public class RedisExecutor<V, R> {
         Codec codecToUse = codec;
         ClassLoader threadClassLoader = Thread.currentThread().getContextClassLoader();
         if (threadClassLoader != null) {
-            Map<Codec, Codec> map = CODECS.get(threadClassLoader);
-            if (map == null) {
-                synchronized (CODECS) {
-                    map = CODECS.get(threadClassLoader);
-                    if (map == null) {
-                        map = new LRUCacheMap<>(200, 0, 0);
-                        CODECS.put(threadClassLoader, map);
-                    }
-                }
-            }
+            Map<Codec, Codec> map = CODECS.computeIfAbsent(threadClassLoader, k ->
+                                            new LRUCacheMap<>(200, 0, 0));
             codecToUse = map.get(codec);
             if (codecToUse == null) {
                 try {

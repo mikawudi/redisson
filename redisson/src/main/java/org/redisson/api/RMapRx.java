@@ -19,14 +19,16 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import org.redisson.api.map.MapLoader;
 import org.redisson.api.map.MapWriter;
 
-import io.reactivex.Completable;
-import io.reactivex.Flowable;
-import io.reactivex.Maybe;
-import io.reactivex.Single;
+import io.reactivex.rxjava3.core.Completable;
+import io.reactivex.rxjava3.core.Flowable;
+import io.reactivex.rxjava3.core.Maybe;
+import io.reactivex.rxjava3.core.Single;
 
 /**
  * RxJava2 interface for Redis based implementation
@@ -41,6 +43,49 @@ import io.reactivex.Single;
  * @param <V> value
  */
 public interface RMapRx<K, V> extends RExpirableRx {
+
+    /**
+     * Associates specified key with the given value if key isn't already associated with a value.
+     * Otherwise, replaces the associated value with the results of the given
+     * remapping function, or removes if the result is {@code null}.
+     *
+     * @param key - map key
+     * @param value - value to be merged with the existing value
+     *        associated with the key or to be associated with the key,
+     *        if no existing value
+     * @param remappingFunction - the function is invoked with the existing value to compute new value
+     * @return new value associated with the specified key or
+     *         {@code null} if no value associated with the key
+     */
+    Maybe<V> merge(K key, V value, BiFunction<? super V, ? super V, ? extends V> remappingFunction);
+
+    /**
+     * Computes a new mapping for the specified key and its current mapped value.
+     *
+     * @param key - map key
+     * @param remappingFunction - function to compute a value
+     * @return the new value associated with the specified key, or {@code null} if none
+     */
+    Maybe<V> compute(K key, BiFunction<? super K, ? super V, ? extends V> remappingFunction);
+
+    /**
+     * Computes a mapping for the specified key if it's not mapped before.
+     *
+     * @param key - map key
+     * @param mappingFunction - function to compute a value
+     * @return current or new computed value associated with
+     *         the specified key, or {@code null} if the computed value is null
+     */
+    Maybe<V> computeIfAbsent(K key, Function<? super K, ? extends V> mappingFunction);
+
+    /**
+     * Computes a mapping for the specified key only if it's already mapped.
+     *
+     * @param key - map key
+     * @param remappingFunction - function to compute a value
+     * @return the new value associated with the specified key, or null if none
+     */
+    Maybe<V> computeIfPresent(K key, BiFunction<? super K, ? super V, ? extends V> remappingFunction);
 
     /**
      * Loads all map entries to this Redis map using {@link org.redisson.api.map.MapLoader}.
@@ -379,7 +424,10 @@ public interface RMapRx<K, V> extends RExpirableRx {
      * Returns iterator over values collection of this map.
      * Values are loaded in batch. Batch size is <code>10</code>. 
      * If <code>keyPattern</code> is not null then only values mapped by matched keys of this pattern are loaded.
-     * 
+     * <p>
+     * Use <code>org.redisson.client.codec.StringCodec</code> for Map keys.
+     * <p>
+     *
      *  Supported glob-style patterns:
      *  <p>
      *    h?llo subscribes to hello, hallo and hxllo
@@ -399,7 +447,10 @@ public interface RMapRx<K, V> extends RExpirableRx {
      * Returns iterator over values collection of this map.
      * Values are loaded in batch. Batch size is defined by <code>count</code> param.
      * If <code>keyPattern</code> is not null then only values mapped by matched keys of this pattern are loaded.
-     * 
+     * <p>
+     * Use <code>org.redisson.client.codec.StringCodec</code> for Map keys.
+     * <p>
+     *
      *  Supported glob-style patterns:
      *  <p>
      *    h?llo subscribes to hello, hallo and hxllo
@@ -440,7 +491,10 @@ public interface RMapRx<K, V> extends RExpirableRx {
     /**
      * Returns iterator over key set of this map. 
      * If <code>pattern</code> is not null then only keys match this pattern are loaded.
-     * 
+     * <p>
+     * Use <code>org.redisson.client.codec.StringCodec</code> for Map keys.
+     * <p>
+     *
      *  Supported glob-style patterns:
      *  <p>
      *    h?llo subscribes to hello, hallo and hxllo
@@ -460,7 +514,10 @@ public interface RMapRx<K, V> extends RExpirableRx {
      * Returns iterator over key set of this map.
      * If <code>pattern</code> is not null then only keys match this pattern are loaded.
      * Keys are loaded in batch. Batch size is defined by <code>count</code> param.
-     * 
+     * <p>
+     * Use <code>org.redisson.client.codec.StringCodec</code> for Map keys.
+     * <p>
+     *
      *  Supported glob-style patterns:
      *  <p>
      *    h?llo subscribes to hello, hallo and hxllo

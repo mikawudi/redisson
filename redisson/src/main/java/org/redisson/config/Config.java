@@ -24,6 +24,8 @@ import org.redisson.connection.AddressResolverGroupFactory;
 import org.redisson.connection.ConnectionManager;
 import org.redisson.connection.DnsAddressResolverGroupFactory;
 import org.redisson.connection.ReplicatedConnectionManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -31,6 +33,7 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.net.URL;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Redisson configuration
@@ -39,6 +42,8 @@ import java.util.concurrent.ExecutorService;
  *
  */
 public class Config {
+
+    static final Logger log = LoggerFactory.getLogger(Config.class);
 
     private SentinelServersConfig sentinelServersConfig;
 
@@ -78,6 +83,8 @@ public class Config {
 
     private long lockWatchdogTimeout = 30 * 1000;
 
+    private long reliableTopicWatchdogTimeout = TimeUnit.MINUTES.toMillis(10);
+
     private boolean keepPubSubOrder = true;
 
     private boolean decodeInExecutor = false;
@@ -115,7 +122,6 @@ public class Config {
         setMinCleanUpDelay(oldConf.getMinCleanUpDelay());
         setMaxCleanUpDelay(oldConf.getMaxCleanUpDelay());
         setCleanUpKeysAmount(oldConf.getCleanUpKeysAmount());
-        setDecodeInExecutor(oldConf.isDecodeInExecutor());
         setUseScriptCache(oldConf.isUseScriptCache());
         setKeepPubSubOrder(oldConf.isKeepPubSubOrder());
         setLockWatchdogTimeout(oldConf.getLockWatchdogTimeout());
@@ -126,6 +132,7 @@ public class Config {
         setEventLoopGroup(oldConf.getEventLoopGroup());
         setTransportMode(oldConf.getTransportMode());
         setAddressResolverGroupFactory(oldConf.getAddressResolverGroupFactory());
+        setReliableTopicWatchdogTimeout(oldConf.getReliableTopicWatchdogTimeout());
 
         if (oldConf.getSingleServerConfig() != null) {
             setSingleServerConfig(new SingleServerConfig(oldConf.getSingleServerConfig()));
@@ -569,41 +576,48 @@ public class Config {
 
     @Deprecated
     public static Config fromJSON(String content) throws IOException {
+        log.error("JSON configuration is deprecated and will be removed in future!");
         ConfigSupport support = new ConfigSupport();
         return support.fromJSON(content, Config.class);
     }
 
     @Deprecated
     public static Config fromJSON(InputStream inputStream) throws IOException {
+        log.error("JSON configuration is deprecated and will be removed in future!");
         ConfigSupport support = new ConfigSupport();
         return support.fromJSON(inputStream, Config.class);
     }
 
     @Deprecated
     public static Config fromJSON(File file, ClassLoader classLoader) throws IOException {
+        log.error("JSON configuration is deprecated and will be removed in future!");
         ConfigSupport support = new ConfigSupport();
         return support.fromJSON(file, Config.class, classLoader);
     }
 
     @Deprecated
     public static Config fromJSON(File file) throws IOException {
+        log.error("JSON configuration is deprecated and will be removed in future!");
         return fromJSON(file, null);
     }
 
     @Deprecated
     public static Config fromJSON(URL url) throws IOException {
+        log.error("JSON configuration is deprecated and will be removed in future!");
         ConfigSupport support = new ConfigSupport();
         return support.fromJSON(url, Config.class);
     }
 
     @Deprecated
     public static Config fromJSON(Reader reader) throws IOException {
+        log.error("JSON configuration is deprecated and will be removed in future!");
         ConfigSupport support = new ConfigSupport();
         return support.fromJSON(reader, Config.class);
     }
 
     @Deprecated
     public String toJSON() throws IOException {
+        log.error("JSON configuration is deprecated and will be removed in future!");
         ConfigSupport support = new ConfigSupport();
         return support.toJSON(this);
     }
@@ -688,9 +702,6 @@ public class Config {
      * Most Redisson methods are Lua-script based and this setting turned
      * on could increase speed of such methods execution and save network traffic.
      * <p>
-     * NOTE: <code>readMode</code> option is not taken into account for such calls 
-     * as Redis slave redirects execution of cached Lua-script on Redis master node. 
-     * <p>
      * Default is <code>false</code>.
      * 
      * @param useScriptCache - <code>true</code> if Lua-script caching is required, <code>false</code> otherwise.
@@ -703,25 +714,6 @@ public class Config {
 
     public boolean isUseScriptCache() {
         return useScriptCache;
-    }
-
-    public boolean isDecodeInExecutor() {
-        return decodeInExecutor;
-    }
-
-    /**
-     * Defines whether to decode data by <code>codec</code> in executor's threads or netty's threads. 
-     * If decoding data process takes long time and netty thread is used then `RedisTimeoutException` could arise time to time.
-     * <p>
-     * Default is <code>false</code>.
-     * 
-     * @param decodeInExecutor - <code>true</code> to use executor's threads, <code>false</code> to use netty's threads.
-     * @return config
-     */
-    @Deprecated
-    public Config setDecodeInExecutor(boolean decodeInExecutor) {
-        this.decodeInExecutor = decodeInExecutor;
-        return this;
     }
 
     public int getMinCleanUpDelay() {
@@ -797,6 +789,27 @@ public class Config {
      */
     public Config setUseThreadClassLoader(boolean useThreadClassLoader) {
         this.useThreadClassLoader = useThreadClassLoader;
+        return this;
+    }
+
+    public long getReliableTopicWatchdogTimeout() {
+        return reliableTopicWatchdogTimeout;
+    }
+
+    /**
+     * Reliable Topic subscriber expires after <code>timeout</code> if watchdog
+     * didn't extend it to next <code>timeout</code> time interval.
+     * <p>
+     * This prevents against infinity grow of stored messages in topic due to Redisson client crush or
+     * any other reason when subscriber can't consumer messages anymore.
+     * <p>
+     * Default is 600000 milliseconds
+     *
+     * @param timeout timeout in milliseconds
+     * @return config
+     */
+    public Config setReliableTopicWatchdogTimeout(long timeout) {
+        this.reliableTopicWatchdogTimeout = timeout;
         return this;
     }
 }

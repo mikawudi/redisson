@@ -15,8 +15,8 @@
  */
 package org.redisson.api;
 
-import io.reactivex.Completable;
-import io.reactivex.Single;
+import io.reactivex.rxjava3.core.Completable;
+import io.reactivex.rxjava3.core.Single;
 
 import java.util.concurrent.TimeUnit;
 
@@ -112,12 +112,6 @@ public interface RSemaphoreRx extends RExpirableRx {
      *         otherwise
      */
     Single<Boolean> tryAcquire(int permits, long waitTime, TimeUnit unit);
-
-    /*
-     * Use addPermits instead
-     */
-    @Deprecated
-    Completable reducePermits(int permits);
 
     /**
      * Increases or decreases the number of available permits by defined value.

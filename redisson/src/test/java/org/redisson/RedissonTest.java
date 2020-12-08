@@ -4,11 +4,12 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.util.CharsetUtil;
 import net.bytebuddy.utility.RandomString;
-import org.junit.*;
+import org.junit.Assert;
+import org.junit.Assume;
+import org.junit.Test;
 import org.redisson.ClusterRunner.ClusterProcesses;
 import org.redisson.RedisRunner.RedisProcess;
 import org.redisson.api.*;
-import org.redisson.api.redisnode.RedisCluster;
 import org.redisson.api.redisnode.RedisClusterMaster;
 import org.redisson.api.redisnode.RedisNodes;
 import org.redisson.client.*;
@@ -40,13 +41,9 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
-import static org.redisson.BaseTest.createInstance;
 
-public class RedissonTest {
+public class RedissonTest extends BaseTest {
 
-    protected RedissonClient redisson;
-    protected static RedissonClient defaultRedisson;
-    
 //    @Test
     public void testLeak() throws InterruptedException {
         Config config = new Config();
@@ -120,43 +117,6 @@ public class RedissonTest {
         assertThat(map.size()).isEqualTo(iterations);
         
         localRedisson.shutdown();
-    }
-    
-    @BeforeClass
-    public static void beforeClass() throws IOException, InterruptedException {
-        if (!RedissonRuntimeEnvironment.isTravis) {
-            RedisRunner.startDefaultRedisServerInstance();
-            defaultRedisson = BaseTest.createInstance();
-        }
-    }
-
-    @AfterClass
-    public static void afterClass() throws IOException, InterruptedException {
-        if (!RedissonRuntimeEnvironment.isTravis) {
-            RedisRunner.shutDownDefaultRedisServerInstance();
-            defaultRedisson.shutdown();
-        }
-    }
-
-    @Before
-    public void before() throws IOException, InterruptedException {
-        if (RedissonRuntimeEnvironment.isTravis) {
-            RedisRunner.startDefaultRedisServerInstance();
-            redisson = createInstance();
-        } else {
-            if (redisson == null) {
-                redisson = defaultRedisson;
-            }
-            redisson.getKeys().flushall();
-        }
-    }
-
-    @After
-    public void after() throws InterruptedException {
-        if (RedissonRuntimeEnvironment.isTravis) {
-            redisson.shutdown();
-            RedisRunner.shutDownDefaultRedisServerInstance();
-        }
     }
     
     public static class Dummy {
@@ -790,6 +750,78 @@ public class RedissonTest {
     }
 
     @Test
+    public void testSentinelStartupWithPassword() throws Exception {
+        RedisRunner.RedisProcess master = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .requirepass("123")
+                .run();
+        RedisRunner.RedisProcess slave1 = new RedisRunner()
+                .port(6380)
+                .nosave()
+                .randomDir()
+                .slaveof("127.0.0.1", 6379)
+                .requirepass("123")
+                .masterauth("123")
+                .run();
+        RedisRunner.RedisProcess slave2 = new RedisRunner()
+                .port(6381)
+                .nosave()
+                .randomDir()
+                .slaveof("127.0.0.1", 6379)
+                .requirepass("123")
+                .masterauth("123")
+                .run();
+        RedisRunner.RedisProcess sentinel1 = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .port(26379)
+                .sentinel()
+                .sentinelMonitor("myMaster", "127.0.0.1", 6379, 2)
+                .sentinelAuthPass("myMaster", "123")
+                .requirepass("123")
+                .run();
+        RedisRunner.RedisProcess sentinel2 = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .port(26380)
+                .sentinel()
+                .sentinelMonitor("myMaster", "127.0.0.1", 6379, 2)
+                .sentinelAuthPass("myMaster", "123")
+                .requirepass("123")
+                .run();
+        RedisRunner.RedisProcess sentinel3 = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .port(26381)
+                .sentinel()
+                .sentinelMonitor("myMaster", "127.0.0.1", 6379, 2)
+                .sentinelAuthPass("myMaster", "123")
+                .requirepass("123")
+                .run();
+
+        Thread.sleep(5000);
+
+        Config config = new Config();
+        config.useSentinelServers()
+            .setLoadBalancer(new RandomLoadBalancer())
+            .setPassword("123")
+            .addSentinelAddress(sentinel3.getRedisServerAddressAndPort()).setMasterName("myMaster");
+
+        long t = System.currentTimeMillis();
+        RedissonClient redisson = Redisson.create(config);
+        assertThat(System.currentTimeMillis() - t).isLessThan(2000L);
+        redisson.shutdown();
+
+        sentinel1.stop();
+        sentinel2.stop();
+        sentinel3.stop();
+        master.stop();
+        slave1.stop();
+        slave2.stop();
+    }
+
+    @Test
     public void testSentinelStartup() throws Exception {
         RedisRunner.RedisProcess master = new RedisRunner()
                 .nosave()
@@ -877,6 +909,38 @@ public class RedissonTest {
     }
 
     @Test
+    public void testEvalCache() throws InterruptedException, IOException {
+        RedisRunner master1 = new RedisRunner().port(6896).randomDir().nosave();
+        RedisRunner master2 = new RedisRunner().port(6891).randomDir().nosave();
+        RedisRunner master3 = new RedisRunner().port(6892).randomDir().nosave();
+        RedisRunner slave1 = new RedisRunner().port(6900).randomDir().nosave();
+        RedisRunner slave2 = new RedisRunner().port(6901).randomDir().nosave();
+        RedisRunner slave3 = new RedisRunner().port(6902).randomDir().nosave();
+
+        ClusterRunner clusterRunner = new ClusterRunner()
+                .addNode(master1, slave1)
+                .addNode(master2, slave2)
+                .addNode(master3, slave3);
+        ClusterRunner.ClusterProcesses process = clusterRunner.run();
+
+        Thread.sleep(5000);
+
+        Config config = new Config();
+        config.setUseScriptCache(true);
+        config.useClusterServers()
+                .setLoadBalancer(new RandomLoadBalancer())
+                .addNodeAddress(process.getNodes().stream().findAny().get().getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
+
+        RTimeSeries<String> t = redisson.getTimeSeries("test");
+        t.add(4, "40");
+        t.add(2, "20");
+        t.add(1, "10", 1, TimeUnit.SECONDS);
+
+        t.size();
+    }
+
+    @Test
     public void testMovedRedirectInCluster() throws Exception {
         RedisRunner master1 = new RedisRunner().randomPort().randomDir().nosave();
         RedisRunner master2 = new RedisRunner().randomPort().randomDir().nosave();
@@ -903,6 +967,7 @@ public class RedissonTest {
         RedisClient c = RedisClient.create(cfg);
         RedisConnection cc = c.connect();
         List<ClusterNodeInfo> cn = cc.sync(RedisCommands.CLUSTER_NODES);
+        c.shutdownAsync();
         cn = cn.stream().filter(i -> i.containsFlag(Flag.MASTER)).collect(Collectors.toList());
         Iterator<ClusterNodeInfo> nodesIter = cn.iterator();
         
@@ -952,11 +1017,14 @@ public class RedissonTest {
             RedisClient ccc = RedisClient.create(cc1);
             RedisConnection connection = ccc.connect();
             connection.sync(RedisCommands.CLUSTER_SETSLOT, slot, "NODE", destination.getNodeId());
+            ccc.shutdownAsync();
         }
         
         redisson.getBucket(key).set("123");
         redisson.getBucket(key).get();
-        
+
+        sourceClient.shutdown();
+        destinationClient.shutdown();
         redisson.shutdown();
         process.shutdown();
     }
@@ -1012,8 +1080,8 @@ public class RedissonTest {
         Assume.assumeFalse(RedissonRuntimeEnvironment.isTravis);
         Config redisConfig = new Config();
         redisConfig.useSingleServer()
-        .setConnectionMinimumIdleSize(10000)
-        .setConnectionPoolSize(10000)
+        .setConnectionMinimumIdleSize(5000)
+        .setConnectionPoolSize(5000)
         .setAddress(RedisRunner.getDefaultRedisServerBindAddressAndPort());
         RedissonClient r = Redisson.create(redisConfig);
         r.shutdown();

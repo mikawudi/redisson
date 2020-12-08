@@ -23,7 +23,6 @@ import org.redisson.client.RedisConnection;
 import org.redisson.client.RedisPubSubConnection;
 import org.redisson.client.protocol.CommandData;
 import org.redisson.client.protocol.RedisCommand;
-import org.redisson.cluster.ClusterConnectionManager;
 import org.redisson.config.MasterSlaveServersConfig;
 import org.redisson.config.ReadMode;
 import org.redisson.config.SubscriptionMode;
@@ -66,32 +65,30 @@ public class MasterSlaveEntry {
 
     final AtomicBoolean active = new AtomicBoolean(true);
     
-    String sslHostname;
+    final String sslHostname;
     
-    public MasterSlaveEntry(ConnectionManager connectionManager, MasterSlaveServersConfig config) {
+    public MasterSlaveEntry(ConnectionManager connectionManager, MasterSlaveServersConfig config, String sslHostname) {
         this.connectionManager = connectionManager;
         this.config = config;
 
         slaveBalancer = new LoadBalancerManager(config, connectionManager, this);
         writeConnectionPool = new MasterConnectionPool(config, connectionManager, this);
         pubSubConnectionPool = new MasterPubSubConnectionPool(config, connectionManager, this);
-        
-        if (connectionManager instanceof ClusterConnectionManager) {
-            sslHostname = ((ClusterConnectionManager) connectionManager).getConfigEndpointHostName();
-        }
+
+        this.sslHostname = sslHostname;
     }
 
     public MasterSlaveServersConfig getConfig() {
         return config;
     }
 
-    public List<RFuture<Void>> initSlaveBalancer(Collection<RedisURI> disconnectedNodes) {
+    public List<RFuture<Void>> initSlaveBalancer(Collection<RedisURI> disconnectedNodes, RedisClient master) {
         boolean freezeMasterAsSlave = !config.getSlaveAddresses().isEmpty()
                     && !config.checkSkipSlavesInit()
                         && disconnectedNodes.size() < config.getSlaveAddresses().size();
 
         List<RFuture<Void>> result = new LinkedList<RFuture<Void>>();
-        RFuture<Void> f = addSlave(new RedisURI(config.getMasterAddress()), freezeMasterAsSlave, NodeType.MASTER);
+        RFuture<Void> f = addSlave(master.getAddr(), master.getConfig().getAddress(), freezeMasterAsSlave, NodeType.MASTER);
         result.add(f);
         for (String address : config.getSlaveAddresses()) {
             RedisURI uri = new RedisURI(address);
@@ -325,7 +322,6 @@ public class MasterSlaveEntry {
                     config.getSubscriptionConnectionPoolSize(), connectionManager, nodeType);
             if (freezed) {
                 synchronized (entry) {
-                    entry.setFreezed(freezed);
                     entry.setFreezeReason(FreezeReason.SYSTEM);
                 }
             }
@@ -430,10 +426,11 @@ public class MasterSlaveEntry {
         return future;
     }
     
-    public void changeMaster(InetSocketAddress address, RedisURI uri) {
+    public RFuture<RedisClient> changeMaster(InetSocketAddress address, RedisURI uri) {
         ClientConnectionsEntry oldMaster = masterEntry;
         RFuture<RedisClient> future = setupMasterEntry(address, uri);
         changeMaster(uri, oldMaster, future);
+        return future;
     }
 
 
@@ -453,9 +450,11 @@ public class MasterSlaveEntry {
             
             writeConnectionPool.remove(oldMaster);
             pubSubConnectionPool.remove(oldMaster);
-            
-            oldMaster.freezeMaster(FreezeReason.MANAGER);
-            slaveDown(oldMaster);
+
+            synchronized (oldMaster) {
+                oldMaster.setFreezeReason(FreezeReason.MANAGER);
+            }
+            nodeDown(oldMaster);
 
             slaveBalancer.changeType(oldMaster.getClient().getAddr(), NodeType.SLAVE);
             slaveBalancer.changeType(newMasterClient.getAddr(), NodeType.MASTER);
@@ -479,7 +478,9 @@ public class MasterSlaveEntry {
 
         RPromise<Void> result = new RedissonPromise<Void>();
         CountableListener<Void> listener = new CountableListener<Void>(result, null, 2);
-        masterEntry.getClient().shutdownAsync().onComplete(listener);
+        if (masterEntry != null) {
+            masterEntry.getClient().shutdownAsync().onComplete(listener);
+        }
         slaveBalancer.shutdownAsync().onComplete(listener);
         return result;
     }

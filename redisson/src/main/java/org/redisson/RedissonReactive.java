@@ -201,6 +201,11 @@ public class RedissonReactive implements RedissonReactiveClient {
     }
 
     @Override
+    public RIdGeneratorReactive getIdGenerator(String name) {
+        return ReactiveProxyBuilder.create(commandExecutor, new RedissonIdGenerator(commandExecutor, name), RIdGeneratorReactive.class);
+    }
+
+    @Override
     public <V> RListReactive<V> getList(String name) {
         return ReactiveProxyBuilder.create(commandExecutor, new RedissonList<V>(commandExecutor, name, null), 
                 new RedissonListReactive<V>(commandExecutor, name), RListReactive.class);
@@ -296,6 +301,20 @@ public class RedissonReactive implements RedissonReactiveClient {
         RedissonTopic topic = new RedissonTopic(codec, commandExecutor, name);
         return ReactiveProxyBuilder.create(commandExecutor, topic, 
                 new RedissonTopicReactive(topic), RTopicReactive.class);
+    }
+
+    @Override
+    public RReliableTopicReactive getReliableTopic(String name) {
+        RedissonReliableTopic topic = new RedissonReliableTopic(commandExecutor, name);
+        return ReactiveProxyBuilder.create(commandExecutor, topic,
+                new RedissonReliableTopicReactive(topic), RReliableTopicReactive.class);
+    }
+
+    @Override
+    public RReliableTopicReactive getReliableTopic(String name, Codec codec) {
+        RedissonReliableTopic topic = new RedissonReliableTopic(codec, commandExecutor, name);
+        return ReactiveProxyBuilder.create(commandExecutor, topic,
+                new RedissonReliableTopicReactive(topic), RReliableTopicReactive.class);
     }
 
     @Override

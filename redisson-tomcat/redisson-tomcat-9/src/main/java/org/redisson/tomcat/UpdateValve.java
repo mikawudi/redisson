@@ -16,6 +16,7 @@
 package org.redisson.tomcat;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.servlet.ServletException;
 
@@ -33,9 +34,19 @@ import org.apache.catalina.valves.ValveBase;
 public class UpdateValve extends ValveBase {
 
     private static final String ALREADY_FILTERED_NOTE = UpdateValve.class.getName() + ".ALREADY_FILTERED_NOTE";
-    
+
+    private final AtomicInteger usage = new AtomicInteger(1);
+
     public UpdateValve() {
         super(true);
+    }
+
+    public void incUsage() {
+        usage.incrementAndGet();
+    }
+
+    public int decUsage() {
+        return usage.decrementAndGet();
     }
 
     @Override
@@ -44,13 +55,17 @@ public class UpdateValve extends ValveBase {
             return;
         }
 
-        //check if we already filtered/processed this request 
+        //check if we already filtered/processed this request
         if (request.getNote(ALREADY_FILTERED_NOTE) == null) {
             request.setNote(ALREADY_FILTERED_NOTE, Boolean.TRUE);
             try {
                 getNext().invoke(request, response);
             } finally {
                 request.removeNote(ALREADY_FILTERED_NOTE);
+                if (request.getContext() == null) {
+                    return;
+                }
+
                 final ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
                 try {
                     ClassLoader applicationClassLoader = request.getContext().getLoader().getClassLoader();

@@ -20,14 +20,71 @@ import org.redisson.api.StreamInfo;
 import org.redisson.api.StreamMessageId;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommand.ValueType;
-import org.redisson.client.protocol.convertor.*;
-import org.redisson.client.protocol.decoder.*;
+import org.redisson.client.protocol.convertor.BitsSizeReplayConvertor;
+import org.redisson.client.protocol.convertor.BooleanAmountReplayConvertor;
+import org.redisson.client.protocol.convertor.BooleanNotNullReplayConvertor;
+import org.redisson.client.protocol.convertor.BooleanNullReplayConvertor;
+import org.redisson.client.protocol.convertor.BooleanNullSafeReplayConvertor;
+import org.redisson.client.protocol.convertor.BooleanNumberReplayConvertor;
+import org.redisson.client.protocol.convertor.BooleanReplayConvertor;
+import org.redisson.client.protocol.convertor.ByteReplayConvertor;
+import org.redisson.client.protocol.convertor.DoubleNullSafeReplayConvertor;
+import org.redisson.client.protocol.convertor.DoubleReplayConvertor;
+import org.redisson.client.protocol.convertor.IntegerReplayConvertor;
+import org.redisson.client.protocol.convertor.LongReplayConvertor;
+import org.redisson.client.protocol.convertor.ShortReplayConvertor;
+import org.redisson.client.protocol.convertor.StreamIdConvertor;
+import org.redisson.client.protocol.convertor.StringToListConvertor;
+import org.redisson.client.protocol.convertor.TimeObjectDecoder;
+import org.redisson.client.protocol.convertor.TrueReplayConvertor;
+import org.redisson.client.protocol.convertor.TypeConvertor;
+import org.redisson.client.protocol.convertor.VoidReplayConvertor;
+import org.redisson.client.protocol.decoder.ClusterNodesDecoder;
+import org.redisson.client.protocol.decoder.InetSocketAddressDecoder;
+import org.redisson.client.protocol.decoder.ListFirstObjectDecoder;
+import org.redisson.client.protocol.decoder.ListMultiDecoder2;
+import org.redisson.client.protocol.decoder.ListObjectDecoder;
+import org.redisson.client.protocol.decoder.ListResultReplayDecoder;
+import org.redisson.client.protocol.decoder.ListScanResult;
+import org.redisson.client.protocol.decoder.ListScanResultReplayDecoder;
+import org.redisson.client.protocol.decoder.Long2MultiDecoder;
+import org.redisson.client.protocol.decoder.MapScanResult;
+import org.redisson.client.protocol.decoder.MapScanResultReplayDecoder;
+import org.redisson.client.protocol.decoder.ObjectDecoder;
+import org.redisson.client.protocol.decoder.ObjectFirstScoreReplayDecoder;
+import org.redisson.client.protocol.decoder.ObjectListReplayDecoder;
+import org.redisson.client.protocol.decoder.ObjectMapEntryReplayDecoder;
+import org.redisson.client.protocol.decoder.ObjectMapReplayDecoder;
+import org.redisson.client.protocol.decoder.ObjectMapReplayDecoder2;
+import org.redisson.client.protocol.decoder.ObjectSetReplayDecoder;
+import org.redisson.client.protocol.decoder.PendingEntryDecoder;
+import org.redisson.client.protocol.decoder.PendingResultDecoder;
+import org.redisson.client.protocol.decoder.ScoredSortedSetPolledObjectDecoder;
+import org.redisson.client.protocol.decoder.ScoredSortedSetReplayDecoder;
+import org.redisson.client.protocol.decoder.ScoredSortedSetScanDecoder;
+import org.redisson.client.protocol.decoder.ScoredSortedSetScanReplayDecoder;
+import org.redisson.client.protocol.decoder.SlotsDecoder;
+import org.redisson.client.protocol.decoder.StreamConsumerInfoDecoder;
+import org.redisson.client.protocol.decoder.StreamGroupInfoDecoder;
+import org.redisson.client.protocol.decoder.StreamIdDecoder;
+import org.redisson.client.protocol.decoder.StreamIdListDecoder;
+import org.redisson.client.protocol.decoder.StreamObjectMapReplayDecoder;
+import org.redisson.client.protocol.decoder.StreamResultDecoder;
+import org.redisson.client.protocol.decoder.StringDataDecoder;
+import org.redisson.client.protocol.decoder.StringListReplayDecoder;
+import org.redisson.client.protocol.decoder.StringMapDataDecoder;
+import org.redisson.client.protocol.decoder.StringReplayDecoder;
+import org.redisson.client.protocol.decoder.TimeLongObjectDecoder;
 import org.redisson.client.protocol.pubsub.PubSubStatusDecoder;
 import org.redisson.cluster.ClusterNodeInfo;
 
 import java.net.InetSocketAddress;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 
 /**
  * 
@@ -150,6 +207,7 @@ public interface RedisCommands {
     RedisCommand<Set<Object>> SDIFF = new RedisCommand<Set<Object>>("SDIFF", new ObjectSetReplayDecoder<Object>());
     RedisCommand<Set<Object>> SINTER = new RedisCommand<Set<Object>>("SINTER", new ObjectSetReplayDecoder<Object>());
 
+    RedisStrictCommand<Long> LPOS = new RedisStrictCommand<>("LPOS");
     RedisCommand<Void> LSET = new RedisCommand<Void>("LSET", new VoidReplayConvertor());
     RedisCommand<Object> LPOP = new RedisCommand<Object>("LPOP");
     RedisCommand<Boolean> LREM_SINGLE = new RedisCommand<Boolean>("LREM", new BooleanReplayConvertor());
@@ -215,6 +273,7 @@ public interface RedisCommands {
     RedisCommand<Object> EVAL_FIRST_LIST = new RedisCommand<Object>("EVAL", new ListFirstObjectDecoder());
     RedisCommand<List<Object>> EVAL_LIST = new RedisCommand<List<Object>>("EVAL", new ObjectListReplayDecoder<Object>());
     RedisCommand<List<Object>> EVAL_LIST_REVERSE = new RedisCommand<List<Object>>("EVAL", new ObjectListReplayDecoder<>(true));
+    RedisCommand<List<Integer>> EVAL_INT_LIST = new RedisCommand("EVAL", new ObjectListReplayDecoder<Integer>(), new IntegerReplayConvertor());
     RedisCommand<Set<Object>> EVAL_SET = new RedisCommand<Set<Object>>("EVAL", new ObjectSetReplayDecoder<Object>());
     RedisCommand<Object> EVAL_OBJECT = new RedisCommand<Object>("EVAL");
     RedisCommand<Object> EVAL_MAP_VALUE = new RedisCommand<Object>("EVAL", ValueType.MAP_VALUE);
@@ -270,7 +329,7 @@ public interface RedisCommands {
     RedisStrictCommand<Long> DEL = new RedisStrictCommand<Long>("DEL");
     RedisStrictCommand<Long> DBSIZE = new RedisStrictCommand<Long>("DBSIZE");
     RedisStrictCommand<Boolean> DEL_BOOL = new RedisStrictCommand<Boolean>("DEL", new BooleanNullSafeReplayConvertor());
-    RedisStrictCommand<Boolean> DEL_OBJECTS = new RedisStrictCommand<Boolean>("DEL", new BooleanNullSafeReplayConvertor());
+    RedisStrictCommand<Boolean> DEL_OBJECTS = new RedisStrictCommand<Boolean>("DEL", new BooleanAmountReplayConvertor());
     RedisStrictCommand<Void> DEL_VOID = new RedisStrictCommand<Void>("DEL", new VoidReplayConvertor());
     
     RedisStrictCommand<Long> UNLINK = new RedisStrictCommand<Long>("UNLINK");
@@ -377,6 +436,7 @@ public interface RedisCommands {
     RedisStrictCommand<Boolean> EXISTS = new RedisStrictCommand<Boolean>("EXISTS", new BooleanReplayConvertor());
     RedisStrictCommand<Boolean> NOT_EXISTS = new RedisStrictCommand<Boolean>("EXISTS", new BooleanNumberReplayConvertor(1L));
 
+    RedisStrictCommand<Long> OBJECT_IDLETIME = new RedisStrictCommand<Long>("OBJECT", "IDLETIME", new LongReplayConvertor());
     RedisStrictCommand<Long> MEMORY_USAGE = new RedisStrictCommand<Long>("MEMORY", "USAGE", new LongReplayConvertor());
     RedisStrictCommand<Boolean> RENAMENX = new RedisStrictCommand<Boolean>("RENAMENX", new BooleanReplayConvertor());
     RedisStrictCommand<Void> RENAME = new RedisStrictCommand<Void>("RENAME", new VoidReplayConvertor());
@@ -386,6 +446,7 @@ public interface RedisCommands {
 
     RedisStrictCommand<Long> PUBLISH = new RedisStrictCommand<Long>("PUBLISH");
     RedisCommand<Long> PUBSUB_NUMSUB = new RedisCommand<Long>("PUBSUB", "NUMSUB", new ListObjectDecoder<Long>(1));
+    RedisCommand<List<String>> PUBSUB_CHANNELS = new RedisStrictCommand<>("PUBSUB", "CHANNELS", new StringListReplayDecoder());
 
     RedisCommand<Object> SUBSCRIBE = new RedisCommand<Object>("SUBSCRIBE", new PubSubStatusDecoder());
     RedisCommand<Object> UNSUBSCRIBE = new RedisCommand<Object>("UNSUBSCRIBE", new PubSubStatusDecoder());

@@ -56,6 +56,30 @@ public class RedissonRateLimiterTest extends BaseTest {
         assertThat(rr.getConfig().getRateInterval()).isEqualTo(5000);
         assertThat(rr.getConfig().getRateType()).isEqualTo(RateType.OVERALL);
     }
+
+    @Test
+    public void testAvailablePermits() throws InterruptedException {
+        RRateLimiter rt = redisson.getRateLimiter("rt2");
+        rt.trySetRate(RateType.OVERALL, 10, 5, RateIntervalUnit.SECONDS);
+
+        assertThat(rt.availablePermits()).isEqualTo(10);
+        rt.acquire(1);
+
+        Thread.sleep(6000);
+
+        assertThat(rt.availablePermits()).isEqualTo(10);
+    }
+
+    @Test
+    public void testUpdateRateConfig() {
+        RRateLimiter rr = redisson.getRateLimiter("acquire");
+        assertThat(rr.trySetRate(RateType.OVERALL, 1, 5, RateIntervalUnit.SECONDS)).isTrue();
+        rr.setRate(RateType.OVERALL, 2, 5, RateIntervalUnit.SECONDS);
+
+        assertThat(rr.getConfig().getRate()).isEqualTo(2);
+        assertThat(rr.getConfig().getRateInterval()).isEqualTo(5000);
+        assertThat(rr.getConfig().getRateType()).isEqualTo(RateType.OVERALL);
+    }
     
     @Test
     public void testPermitsExceeding() throws InterruptedException {
@@ -140,7 +164,22 @@ public class RedissonRateLimiterTest extends BaseTest {
             Thread.sleep(1050);
         }
     }
-    
+
+    @Test
+    public void testRemove() {
+        RRateLimiter rateLimiter = redisson.getRateLimiter("test");
+        assertThat(rateLimiter.delete()).isFalse();
+
+        rateLimiter.trySetRate(RateType.OVERALL, 5L, 5L, RateIntervalUnit.MINUTES);
+        assertThat(redisson.getKeys().count()).isEqualTo(1);
+
+        rateLimiter.tryAcquire();
+
+        boolean deleted = rateLimiter.delete();
+        assertThat(redisson.getKeys().count()).isEqualTo(0);
+        assertThat(deleted).isTrue();
+    }
+
     @Test
     public void testConcurrency() throws InterruptedException {
         RRateLimiter rr = redisson.getRateLimiter("test");
@@ -180,7 +219,7 @@ public class RedissonRateLimiterTest extends BaseTest {
         for (Long value : queue) {
             if (count % 10 == 0) {
                 if (start > 0) {
-                    assertThat(value - start).isGreaterThan(990);
+                    assertThat(value - start).isGreaterThan(980);
                 }
                 start = value;
             }
