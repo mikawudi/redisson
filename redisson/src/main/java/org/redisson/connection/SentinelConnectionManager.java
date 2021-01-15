@@ -132,6 +132,7 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
                     String ip = map.get("ip");
                     String port = map.get("port");
                     String flags = map.get("flags");
+                    String masterLinkStatus = map.get("master-link-status");
 
                     RedisURI host = toURI(ip, port);
 
@@ -139,7 +140,7 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
                     log.debug("slave {} state: {}", host, map);
                     log.info("slave: {} added", host);
 
-                    if (flags.contains("s_down") || flags.contains("disconnected")) {
+                    if (slaveIsDown(flags, masterLinkStatus)) {
                         disconnectedSlaves.add(host);
                         log.warn("slave: {} is down", host);
                     }
@@ -412,9 +413,10 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
                     String flags = map.get("flags");
                     String masterHost = map.get("master-host");
                     String masterPort = map.get("master-port");
+                    String masterLinkStatus = map.get("master-link-status");
 
                     RedisURI slaveAddr = toURI(ip, port);
-                    if (flags.contains("s_down") || flags.contains("disconnected")) {
+                    if (slaveIsDown(flags, masterLinkStatus)) {
                         slaveDown(slaveAddr);
                         continue;
                     }
@@ -661,5 +663,13 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
         return result;
     }
 
+    private boolean slaveIsDown(String flags, String masterLinkState) {
+        if (masterLinkState == null) {
+            return (flags.contains("s_down") || flags.contains("disconnected"));
+        }
+        else {
+            return (flags.contains("s_down") || flags.contains("disconnected") || masterLinkState.contains("err"));
+        }
+    }
 }
 
