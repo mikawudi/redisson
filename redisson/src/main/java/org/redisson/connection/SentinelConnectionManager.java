@@ -663,12 +663,12 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
         return result;
     }
 
-    private boolean slaveIsDown(String flags, String masterLinkState) {
-        if (masterLinkState == null) {
+    private boolean slaveIsDown(String flags, String masterLinkStatus) {
+        if (masterLinkStatus == null) {
             return (flags.contains("s_down") || flags.contains("disconnected"));
         }
         else {
-            return (flags.contains("s_down") || flags.contains("disconnected") || masterLinkState.contains("err"));
+            return (flags.contains("s_down") || flags.contains("disconnected") || masterLinkStatus.contains("err"));
         }
     }
 }
